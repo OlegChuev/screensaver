@@ -1,93 +1,62 @@
-# Binary name
-BINARY_NAME=screensaver
+.DEFAULT_GOAL := bin/screensaver
 
-# Go parameters
-GOCMD=go
-GOBUILD=$(GOCMD) build
-GOCLEAN=$(GOCMD) clean
-GOTEST=$(GOCMD) test
-GOGET=$(GOCMD) get
-GOMOD=$(GOCMD) mod
+GOPATH := $(shell go env GOPATH)
+VERSION ?= master
 
-# Build directory
-BUILD_DIR=build
+PLATFORMS := linux darwin windows
+ARCHITECTURES := amd64 arm64
 
-# Version info
-VERSION?=0.1.0
-LDFLAGS=-ldflags "-s -w -X main.Version=$(VERSION)"
+.PHONY: build test run lint clean install-tools certs help demo release
 
-.PHONY: all build build-all clean run test deps install uninstall
+##@ Packaging
 
-# Default target
-all: clean build
+bin/screensaver:
+	@go build -o bin/screensaver main.go
 
-# Build for current platform
-build:
-	@echo "Building $(BINARY_NAME)..."
-	@$(GOBUILD) $(LDFLAGS) -o $(BINARY_NAME) .
+# Build binary
+build: bin/screensaver ## Build binary
 
-# Build for all platforms
-build-all: clean
-	@echo "Building for all platforms..."
-	@mkdir -p $(BUILD_DIR)
-	@echo "  -> darwin/amd64"
-	@GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 .
-	@echo "  -> darwin/arm64"
-	@GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 .
-	@echo "  -> linux/amd64"
-	@GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 .
-	@echo "  -> linux/arm64"
-	@GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 .
-	@echo "  -> windows/amd64"
-	@GOOS=windows GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe .
-	@echo "Done!"
+release: clean ## Build release binaries for all platforms
+	@for platform in $(PLATFORMS); do \
+		for arch in $(ARCHITECTURES); do \
+			ext=""; \
+			if [ "$$platform" = "windows" ]; then ext=".exe"; fi; \
+			output="bin/screensaver_$(VERSION)_$${platform}.$${arch}$${ext}"; \
+			echo "Building $$output..."; \
+			GOOS=$$platform GOARCH=$$arch go build -o $$output main.go; \
+		done; \
+	done
+	@go run .
+
+##@ Development commands
+
+# Install
+install: ## Install dependencies
+	@go install .
+	@echo "Installed to $(GOPATH)/bin/screensaver"
+
+.PHONY: uninstall
+uninstall:
+	@rm -f $(GOPATH)/bin/screensaver
+	@echo "Uninstalled"
+
+# Lint code
+lint: ## Lint code
+	go vet ./...
+	go fmt ./...
 
 # Clean build artifacts
-clean:
-	@echo "Cleaning..."
-	@$(GOCLEAN)
-	@rm -f $(BINARY_NAME)
-	@rm -rf $(BUILD_DIR)
+clean: ## Clean build artifacts
+	@rm -rf bin/
 
-# Run without building
-run:
-	@$(GOCMD) run .
+install-tools: ## Install development tools
+	@go install github.com/charmbracelet/vhs@latest
+	@echo "Development tools installed!"
 
-# Run tests
-test:
-	@$(GOTEST) -v ./...
+##@ Other
 
-# Download dependencies
-deps:
-	@echo "Downloading dependencies..."
-	@$(GOMOD) download
-	@$(GOMOD) tidy
+demo: ## Run vhs demo
+	@cd assets && vhs demo.tape
 
-# Install to GOPATH/bin
-install: build
-	@echo "Installing $(BINARY_NAME)..."
-	@cp $(BINARY_NAME) $(GOPATH)/bin/$(BINARY_NAME) 2>/dev/null || \
-		cp $(BINARY_NAME) $(HOME)/go/bin/$(BINARY_NAME) 2>/dev/null || \
-		(echo "Could not find Go bin directory. Please copy $(BINARY_NAME) manually." && exit 1)
-	@echo "Installed to Go bin directory"
-
-# Uninstall from GOPATH/bin
-uninstall:
-	@echo "Uninstalling $(BINARY_NAME)..."
-	@rm -f $(GOPATH)/bin/$(BINARY_NAME) 2>/dev/null || \
-		rm -f $(HOME)/go/bin/$(BINARY_NAME) 2>/dev/null || \
-		echo "Binary not found in Go bin directory"
-	@echo "Done!"
-
-# Help
-help:
-	@echo "Available targets:"
-	@echo "  build      - Build for current platform"
-	@echo "  build-all  - Build for all platforms (darwin, linux, windows)"
-	@echo "  clean      - Remove build artifacts"
-	@echo "  run        - Run without building"
-	@echo "  test       - Run tests"
-	@echo "  deps       - Download dependencies"
-	@echo "  install    - Install to GOPATH/bin"
-	@echo "  uninstall  - Remove from GOPATH/bin"
-	@echo "  help       - Show this help"
+help: ## Display this help.
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)

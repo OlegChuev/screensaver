@@ -9,7 +9,7 @@ import (
 )
 
 // ASCII characters for 3D shading effect - from darkest/furthest to brightest/closest
-var shadeChars = []rune{' ', '.', ':', '-', '=', '+', '*', '#', '%', '@'}
+var shadeChars = []rune{'·', ':', '÷', '≈', '≠', '≡', '∫', '#', '▓', '█'}
 
 // Block characters for filled areas
 var blockChars = []rune{'░', '▒', '▓', '█'}
@@ -98,57 +98,58 @@ func (r *Renderer) project3D(p wave.Point3D) (int, int, float64) {
 	return screenX, screenY, depth
 }
 
-// RenderWave renders the flowing ribbon wave to the buffer using shaded characters.
+// RenderWave renders the particle-based ocean surface to the buffer.
 func (r *Renderer) RenderWave(w *wave.Wave) {
-	numLayers, numPoints := w.Size()
+	gridDepth, gridWidth := w.Size()
 	minZ, maxZ := w.MinZ, w.MaxZ
 	zRange := maxZ - minZ
 	if zRange == 0 {
 		zRange = 1
 	}
 
-	// Draw from back to front (lower layer index = back)
-	for layer := 0; layer < numLayers; layer++ {
-		layerFactor := float64(layer) / float64(numLayers-1)
+	// Render surface grid
+	for depth := 0; depth < gridDepth-1; depth++ {
+		for width := 0; width < gridWidth-1; width++ {
+			// Get four corners of the grid cell
+			p1 := w.GridPoints[depth][width]
+			p2 := w.GridPoints[depth][width+1]
+			p3 := w.GridPoints[depth+1][width]
+			p4 := w.GridPoints[depth+1][width+1]
 
-		for i := 0; i < numPoints; i++ {
-			r.renderWaveSegment(w, layer, i, layerFactor, minZ, zRange)
+			// Project to screen space
+			x1, y1, d1 := r.project3D(p1)
+			x2, y2, d2 := r.project3D(p2)
+			x3, y3, d3 := r.project3D(p3)
+			x4, y4, d4 := r.project3D(p4)
+
+			// Calculate average properties for the quad
+			avgZ := (p1.Z + p2.Z + p3.Z + p4.Z) / 4.0
+			normalizedZ := (avgZ - minZ) / zRange
+			avgDepth := (d1 + d2 + d3 + d4) / 4.0
+			depthFactor := float64(depth) / float64(gridDepth-1)
+
+			// Get style based on wave height
+			style := r.getStyle(normalizedZ, depthFactor)
+			char := r.getShadeChar(normalizedZ, depthFactor)
+
+			// Draw the grid cell edges
+			r.drawShadedLine(x1, y1, x2, y2, (d1+d2)/2, normalizedZ, depthFactor, style)
+			r.drawShadedLine(x1, y1, x3, y3, (d1+d3)/2, normalizedZ, depthFactor, style)
+
+			// Fill the quad center with a character
+			centerX := (x1 + x2 + x3 + x4) / 4
+			centerY := (y1 + y2 + y3 + y4) / 4
+			r.setCell(centerX, centerY, char, avgDepth, style)
 		}
 	}
-}
 
-func (r *Renderer) renderWaveSegment(w *wave.Wave, layer, i int, layerFactor, minZ, zRange float64) {
-	numLayers, numPoints := w.Size()
-	p1 := w.Points[layer][i]
-	x1, y1, d1 := r.project3D(p1)
-
-	// Normalized height for shading (0 = valley, 1 = peak)
-	normalizedZ := (p1.Z - minZ) / zRange
-
-	// Get character and style based on depth and height
-	char := r.getShadeChar(normalizedZ, layerFactor)
-	style := r.getStyle(normalizedZ, layerFactor)
-
-	// Draw horizontal line to next point (along the wave)
-	if i < numPoints-1 {
-		p2 := w.Points[layer][i+1]
-		x2, y2, d2 := r.project3D(p2)
-		avgDepth := (d1 + d2) / 2
-		avgZ := ((p1.Z - minZ) / zRange + (p2.Z - minZ) / zRange) / 2
-		r.drawShadedLine(x1, y1, x2, y2, avgDepth, avgZ, layerFactor, style)
+	// Render particles (spray/foam effect)
+	for _, particle := range w.Particles {
+		px, py, pd := r.project3D(particle.Pos)
+		// Particles use brighter colors and special characters
+		particleStyle := tcell.StyleDefault.Foreground(tcell.NewRGBColor(255, 255, 255))
+		r.setCell(px, py, '•', pd, particleStyle)
 	}
-
-	// Draw vertical line to next layer (creates ribbon depth)
-	if layer < numLayers-1 {
-		p3 := w.Points[layer+1][i]
-		x3, y3, d3 := r.project3D(p3)
-		avgDepth := (d1 + d3) / 2
-		// Vertical lines use block characters for filled look
-		r.drawVerticalFill(x1, y1, x3, y3, avgDepth, normalizedZ, layerFactor, style)
-	}
-
-	// Draw the point itself
-	r.setCell(x1, y1, char, d1, style)
 }
 
 // getShadeChar returns an ASCII character based on depth and height for 3D effect.
@@ -183,13 +184,13 @@ type colorStop struct {
 }
 
 var colorGradient = []colorStop{
-	{0.15, 30, 50, 120},   // Deep blue
-	{0.30, 50, 80, 160},   // Medium blue
-	{0.45, 70, 120, 200},  // Blue
-	{0.60, 100, 160, 220}, // Light blue
-	{0.75, 140, 200, 235}, // Cyan
-	{0.90, 180, 225, 245}, // Light cyan
-	{2.00, 220, 245, 255}, // Near white (catch-all)
+	{0.15, 30, 30, 30},    // Dark Grey
+	{0.30, 80, 80, 80},    // Dim Grey
+	{0.45, 120, 120, 120}, // Grey
+	{0.60, 160, 160, 160}, // Silver
+	{0.75, 200, 200, 200}, // Light Grey
+	{0.90, 230, 230, 230}, // Gainsboro
+	{2.00, 255, 255, 255}, // White
 }
 
 // getStyle returns a color style based on normalized height and layer position.
@@ -250,30 +251,6 @@ func (r *Renderer) drawShadedLine(x1, y1, x2, y2 int, depth, normalizedZ, layerF
 			y1 += sy
 		}
 		steps++
-	}
-}
-
-// drawVerticalFill draws vertical connections between layers with block characters.
-func (r *Renderer) drawVerticalFill(x1, y1, x2, y2 int, depth, normalizedZ, layerFactor float64, style tcell.Style) {
-	// Only draw if there's vertical distance
-	if y1 == y2 {
-		return
-	}
-
-	dy := y2 - y1
-	sy := 1
-	if dy < 0 {
-		sy = -1
-		dy = -dy
-	}
-
-	// Use block characters for vertical fill
-	char := r.getBlockChar(normalizedZ, layerFactor)
-
-	y := y1
-	for i := 0; i <= dy; i++ {
-		r.setCell(x1, y, char, depth, style)
-		y += sy
 	}
 }
 

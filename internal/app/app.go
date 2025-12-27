@@ -21,7 +21,7 @@ type Config struct {
 // DefaultConfig returns default application configuration with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		FrameDelay: 50 * time.Millisecond, // Smooth animation at ~20 FPS
+		FrameDelay: 80 * time.Millisecond, // Smooth animation at ~12.5 FPS
 		WaveConfig: wave.DefaultConfig(),
 	}
 }
